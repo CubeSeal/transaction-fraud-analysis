@@ -2,12 +2,13 @@
 library(data.table)
 library(dplyr)
 library(keras)
+library(pROC)
 
 # Import data
 df <- fread("./creditcard.csv", data.table = F)
 
 # Create training and test data sets
-tr <- 1:nrow(df) %in% sample(nrow(df), 10^5, replace = F)
+tr <- 1:nrow(df) %in% sample(nrow(df) %/% 2, 10^5, replace = F)
 nw <- !tr
 
 tr_data <- as.matrix(df[tr, c(-1, -31)])
@@ -16,13 +17,19 @@ nw_data <- as.matrix(df[nw, c(-1, -31)])
 nw_output <- df[nw, 31]
 
 # Create regression models
-lm <- lm(Class ~ ., data = df[tr, ])
-logit <- glm(Class ~ .,
-                          data = df[tr, ],
-                          family = binomial(link = "logit"))
+logit <- glm(Class ~ . -Time,
+			 data = df[tr, ],
+             family = binomial(link = "logit"))
 
-# Create classifier for logit
-logit.pr <- as.numeric(predict.glm(logit, df[nw, ], type = "response") > 0.5)
+# Predict based on test data
+logit.pr <- predict.glm(logit, df[nw, ], type = "response")
+
+# AUC for logit
+auc(nw_output, logit.pr)
+
+# Confusion table for logit predictor
+logit.conf <- addmargins(table(as.numeric(logit.pr > 0.99), nw_output))
+logit.conf
 
 # Load deap learning model from hdf5 file
 dl <- load_model_hdf5("./DL.hdf5")
@@ -50,9 +57,6 @@ history <- dl %>%
 
 # Evaluate dl model
 dl %>% evaluate(nw_data, nw_output)
-
-# Confusion table for logit predictor
-logit.conf <- addmargins(table(logit.pr, nw_output))
 
 # Confusion table for dl predictor
 dl.predict <- dl %>% predict_classes(nw_data)
